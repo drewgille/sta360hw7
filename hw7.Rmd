@@ -7,8 +7,8 @@ date: "2024-03-21"
 # 1
 
 ```{r}
-#divorce <- read.csv("divorce(Sheet1).csv")
-
+divorce <- read.csv("divorce(Sheet1).csv")
+library(invgamma)
 ```
 
 
@@ -19,10 +19,10 @@ date: "2024-03-21"
 taub2 <- 16
 tauc2 <- 16
 
-#x <- divorce$X
-#y <- divorce$Y
-x <- c(2,0,0,1,0,-1,3,9,0,2,-1,1,6,0,-2,-1,4,2,0,0,3,0,3,12,-3)
-y <- c(0,0,0,0,0,0,0,1,0,1,0,1,1,1,1,0,1,1,0,0,1,0,0,1,0)
+x <- divorce$X
+y <- divorce$Y
+#x <- c(2,0,0,1,0,-1,3,9,0,2,-1,1,6,0,-2,-1,4,2,0,0,3,0,3,12,-3)
+#y <- c(0,0,0,0,0,0,0,1,0,1,0,1,1,1,1,0,1,1,0,0,1,0,0,1,0)
 
 rcnorm<-function(n,mean=0,sd=1,a=-Inf,b=Inf){
   u<-runif(n, pnorm((a-mean)/sd), pnorm((b-mean)/sd) )
@@ -36,9 +36,7 @@ library(tidyverse)
 ```
 
 ```{r}
-
-S <- 100
-n <- length(y)
+S <- 30000
 
 #parameters
 param <- NULL
@@ -48,7 +46,7 @@ Z <- NULL
 
 #initialize z and c
 c = 0
-z = ifelse(y==1, rcnorm(n, mean=beta*x, sd=1, a=c), rcnorm(n, mean=beta*x, sd=1, b=c))
+z = rep(1, length(y))
 
 a <- (1/taub2) + sum(x*x)
 
@@ -62,7 +60,7 @@ for (s in 1:S){
   beta = rnorm(1, mean = mu, sd = sqrt(1/a))
   
   #sample z
-  z = ifelse(y==1, rcnorm(n, mean=beta*x, sd=1, a=c), rcnorm(n, mean=beta*x, sd=1, b=c))
+  z = ifelse(y==1, rcnorm(length(y), mean=beta*x, sd=1, a=c), rcnorm(length(y), mean=beta*x, sd=1, b=c))
   
   #sample c
   c = rcnorm(1, mean=0, sd=sqrt(tauc2), a=max(z[y == 0]), b=min(z[y == 1]))
@@ -72,12 +70,42 @@ for (s in 1:S){
   Z = rbind(Z, z)
   
 }
+```
 
+
+```{r}
 effectiveSize(param[,1])
 effectiveSize(param[,2])
 effectiveSize(Z)
 
 ```
+
+```{r}
+acf(param[,1])
+acf(param[,2])
+```
+The autocorrelation plot of beta converges quicker than that of c. Both converge at significant rates, however, so the Markov chain is well-mixed.
+
+## 1d
+
+```{r}
+print("CI for beta:")
+print(quantile(param[,1], c(.025, .975)))
+print("----------------------")
+
+beta_gt_0 <- ifelse(param[,1]>0, 1, 0)
+
+print("P(beta>0|y,x):")
+print(mean(beta_gt_0))
+
+```
+
+
+
+
+
+
+
 
 # 3
 
@@ -284,5 +312,197 @@ Y[[6]] <- as.matrix(school6)
 Y[[7]] <- as.matrix(school7)
 Y[[8]] <- as.matrix(school8)
 ```
+
+```{r}
+### weakly informative priors
+nu0<-2  ; s20<-15
+eta0<-2 ; t20<-10
+mu0<-7 ; g20<-5
+
+### starting values
+m<-length(Y)
+n<-sv<-ybar<-rep(NA,m)
+for(j in 1:m) 
+{ 
+  ybar[j]<-mean(Y[[j]])
+  sv[j]<-var(Y[[j]])
+  n[j]<-length(Y[[j]])
+}
+theta<-ybar ; sigma2<-mean(sv)
+mu<-mean(theta) ; tau2<-var(theta)
+###
+```
+
+```{r}
+### setup MCMC
+set.seed(1)
+S<-2000
+THETA<-matrix( nrow=S,ncol=m)
+SMT<-matrix( nrow=S,ncol=3)
+###
+```
+
+
+```{r}
+### MCMC algorithm
+for(s in 1:S) 
+{
+
+  # sample new values of the thetas
+  for(j in 1:m) 
+  {
+    vtheta<-1/(n[j]/sigma2+1/tau2)
+    etheta<-vtheta*(ybar[j]*n[j]/sigma2+mu/tau2)
+    theta[j]<-rnorm(1,etheta,sqrt(vtheta))
+   }
+
+  #sample new value of sigma2
+  nun<-nu0+sum(n)
+  ss<-nu0*s20
+  for(j in 1:m){ss<-ss+sum((Y[[j]]-theta[j])^2)}
+  sigma2<-1/rgamma(1,nun/2,ss/2)
+
+  #sample a new value of mu
+  vmu<- 1/(m/tau2+1/g20)
+  emu<- vmu*(m*mean(theta)/tau2 + mu0/g20)
+  mu<-rnorm(1,emu,sqrt(vmu))
+
+  # sample a new value of tau2
+  etam<-eta0+m
+  ss<- eta0*t20 + sum( (theta-mu)^2 )
+  tau2<-1/rgamma(1,etam/2,ss/2)
+
+  #store results
+  THETA[s,]<-theta
+  SMT[s,]<-c(sigma2,mu,tau2)
+    
+}
+```
+
+```{r}
+plot(x=SMT[,1], type="l")
+plot(x=SMT[,2], type="l")
+plot(x=SMT[,3], type="l")
+```
+
+```{r}
+acf(SMT[,1])
+acf(SMT[,2])
+acf(SMT[,3])
+```
+
+
+
+```{r}
+effectiveSize(SMT)
+```
+
+The parameters converge quickly, so the Markov chain is well-mixed.
+
+
+## 3b
+
+```{r}
+print("posterior mean of sigma^2:")
+print(mean(SMT[,1]))
+print("posterior CI of sigma^2:")
+print(quantile(SMT[,1], c(.025, .975)))
+print("-------------------------")
+
+print("posterior mean of mu:")
+print(mean(SMT[,2]))
+print("posterior CI of mu:")
+print(quantile(SMT[,2], c(.025, .975)))
+print("-------------------------")
+
+print("posterior mean of tau^2:")
+print(mean(SMT[,3]))
+print("posterior CI of tau^2:")
+print(quantile(SMT[,3], c(.025, .975)))
+
+```
+
+```{r}
+#sigma^2
+x.axis <- seq(min(SMT[,1]), max(SMT[,1]))
+hist(SMT[,1], probability=TRUE)
+lines(x.axis, dinvgamma(x.axis, nu0/2, nu0*s20/2))
+```
+
+```{r}
+#mu
+x.axis <- seq(min(SMT[,2]), max(SMT[,2]))
+hist(SMT[,2], probability=TRUE)
+lines(x.axis, dnorm(x.axis, mu0, sqrt(g20)))
+```
+
+```{r}
+#tau^2
+x.axis <- seq(min(SMT[,3]), max(SMT[,3]))
+hist(SMT[,3], probability=TRUE, breaks=20)
+lines(x.axis, dinvgamma(x.axis, eta0/2, eta0*t20/2))
+```
+
+The posterior and prior densities have ROUGHLY similar shapes, but the priors are flatter. This suggests that as we get more data, our beliefs in the densities become stronger, seen by the more concentrated shape of the posterior densities.
+
+
+
+## 3c
+
+```{r}
+postR2 <- SMT[,3]/(SMT[,1]+SMT[,3])
+hist(postR2)
+
+
+t2_samp <- rinvgamma(x.axis, eta0/2, eta0*t20/2)
+s2_samp <- rinvgamma(x.axis, nu0/2, nu0*s20/2)
+priorR2 <- t2_samp/(s2_samp+t2_samp)
+hist(priorR2)
+```
+Both the prior and posterior distributions (especially the posterior) for R are centered below 0.5. This means that most of the variance in the data is from within-school variance (sigma^2) as opposed to between-school variance (tau^2).
+
+
+## 3d
+
+```{r}
+sev_lt_six <- ifelse(THETA[,7]<THETA[,6], 1, 0)
+print("P(theta7<theta6|Y):")
+print(mean(sev_lt_six))
+print("--------------------------")
+
+sev_lt_all <- ifelse((THETA[,7]<THETA[,1])&(THETA[,7]<THETA[,2])&(THETA[,7]<THETA[,3])&(THETA[,7]<THETA[,4])&(THETA[,7]<THETA[,5])&(THETA[,7]<THETA[,6])&(THETA[,7]<THETA[,8]), 1, 0)
+print("P(theta7<all other thetas|Y):")
+print(mean(sev_lt_all))
+```
+
+
+## 3e
+
+```{r}
+THETA_avgs <- rep(0,8)
+samp_avgs <- rep(0,8)
+
+for (i in 1:8){
+  
+  THETA_avgs[i] = mean(THETA[,i])
+  samp_avgs[i] = mean(Y[[i]])
+  
+}
+
+plot(x=THETA_avgs, y=samp_avgs)
+```
+
+The sample averages and the posterior expectations of theta are strongly positively correlated.
+
+```{r}
+print("mean of all observations:")
+print(mean(samp_avgs))
+print("---------------------------")
+
+print("posterior mean of mu:")
+print(mean(SMT[,2]))
+```
+These values are very similar.
+
 
 
