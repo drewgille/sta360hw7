@@ -1,0 +1,78 @@
+---
+title: "360hw7"
+output: html_document
+date: "2024-03-21"
+---
+
+# 1
+
+```{r}
+divorce <- read.csv("divorce(Sheet1).csv")
+```
+
+
+
+### 1c
+
+```{r}
+taub2 <- 16
+tauc2 <- 16
+
+x <- divorce$X
+y <- divorce$Y
+
+rcnorm<-function(n,mean=0,sd=1,a=-Inf,b=Inf){
+  u<-runif(n, pnorm((a-mean)/sd), pnorm((b-mean)/sd) )
+  mean+sd*qnorm(u)
+}
+```
+
+```{r}
+library(coda)
+```
+
+```{r}
+
+S <- 100
+n <- length(y)
+
+#parameters
+param <- NULL
+
+#Z is a vector so store separate
+Z <- NULL
+
+#initialize z and c
+z <- c(rep(1, length(y)))
+c = 0
+
+for (s in 1:S){
+  
+  #a and b
+  a <- (1/taub2) + sum(x*x)
+  b <- sum(x*z)
+  
+  #sample beta
+  beta <- rnorm(1, 1/a, b/a)
+  
+  #sample z
+  z <- ifelse(y==1, rcnorm(n, mean=beta*x, sd=1, a=c), rcnorm(n, mean=beta*x, sd=1, b=c))
+  
+  #sample c
+  c <- rcnorm(n, mean=0, sd=sqrt(tauc2), a=max(z[y==0]), b=min(z[y==1]))
+  
+  #store info
+  param <- rbind(param, c(beta, c))
+  Z <- rbind(Z, z)
+  
+}
+
+effectiveSize(param[,1])
+effectiveSize(param[,2])
+effectiveSize(Z)
+
+```
+
+
+
+
